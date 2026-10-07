@@ -94,7 +94,7 @@ class Alvo:
         return distancia((self.x, self.y), (x, y)) <= self.raio + 9
 
 
-def criar_alvo(largura, altura, atuais, nivel=1, gerador=None):
+def criar_alvo(largura, altura, atuais, nivel=1, gerador=None, fator_ritmo=1.0):
     rng = gerador or random
     topo = 116
     rodape = altura - 70
@@ -108,7 +108,7 @@ def criar_alvo(largura, altura, atuais, nivel=1, gerador=None):
         return None
     chance = rng.random()
     tipo = 'perigo' if nivel >= 3 and chance < 0.11 else 'bonus' if chance > 0.86 else 'normal'
-    vida = max(1.35, 3.8 - nivel * 0.22)
+    vida = max(1.35, 3.8 - nivel * 0.22) / max(0.1, float(fator_ritmo))
     return Alvo(x, y, raio, tipo, vida, rng.random() * math.tau)
 
 

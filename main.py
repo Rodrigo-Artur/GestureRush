@@ -31,6 +31,9 @@ from logica import (
 )
 
 W, H = 1280, 720
+FATORES_DIFICULDADE = {'facil': 0.33, 'medio': 0.66, 'dificil': 1.10}
+DIFICULDADES = ('facil', 'medio', 'dificil')
+MODOS_RANKING = ('webcam', 'mouse')
 FUNDO = (10, 16, 33)
 PAINEL = (20, 31, 54)
 BRANCO = (237, 246, 255)
@@ -61,23 +64,63 @@ def arquivo_config():
     return pasta_appdata() / 'config.json'
 
 
+def novo_ranking():
+    return {
+        'versao': 2,
+        'rankings': {modo: {dif: [] for dif in DIFICULDADES} for modo in MODOS_RANKING},
+        'legado': [],
+    }
+
+
+def registros_validos(itens):
+    if not isinstance(itens, list):
+        return []
+    resultado = []
+    for item in itens:
+        if (isinstance(item, dict) and isinstance(item.get('pontos'), int)
+                and not isinstance(item.get('pontos'), bool)
+                and isinstance(item.get('nome'), str)):
+            resultado.append({'nome': item['nome'][:14], 'pontos': max(0, item['pontos'])})
+    return sorted(resultado, key=lambda item: (-item['pontos'], item['nome']))[:20]
+
+
 def ler_ranking():
+    ranking = novo_ranking()
     try:
         dado = json.loads(arquivo_ranking().read_text(encoding='utf-8'))
-        itens = [i for i in dado if isinstance(i, dict) and isinstance(i.get('pontos'), int)
-                 and isinstance(i.get('nome'), str)]
-        return sorted(itens, key=lambda i: (-i['pontos'], i['nome']))[:20]
+        if isinstance(dado, list):
+            ranking['legado'] = registros_validos(dado)
+        elif isinstance(dado, dict):
+            ranking['legado'] = registros_validos(dado.get('legado', []))
+            grupos = dado.get('rankings', {})
+            for modo in MODOS_RANKING:
+                for dificuldade in DIFICULDADES:
+                    ranking['rankings'][modo][dificuldade] = registros_validos(
+                        grupos.get(modo, {}).get(dificuldade, [])
+                        if isinstance(grupos, dict) and isinstance(grupos.get(modo, {}), dict)
+                        else []
+                    )
     except (OSError, ValueError, TypeError):
-        return []
+        pass
+    return ranking
 
 
-def salvar_ranking(nome, pontos):
-    lista = ler_ranking()
+def lista_ranking(ranking, modo, dificuldade):
+    modo = 'webcam' if modo in ('camera', 'webcam') else 'mouse'
+    dificuldade = dificuldade if dificuldade in DIFICULDADES else 'medio'
+    return ranking['rankings'][modo][dificuldade]
+
+
+def salvar_ranking(nome, pontos, modo, dificuldade):
+    ranking = ler_ranking()
+    lista = lista_ranking(ranking, modo, dificuldade)
     lista.append({'nome': nome.strip()[:14].upper() or 'VISITANTE', 'pontos': max(0, int(pontos))})
     lista.sort(key=lambda i: (-i['pontos'], i['nome']))
     arquivo = arquivo_ranking()
     tmp = arquivo.with_suffix('.tmp')
-    tmp.write_text(json.dumps(lista[:20], ensure_ascii=False, indent=2), encoding='utf-8')
+    ranking['rankings']['webcam' if modo in ('camera', 'webcam') else 'mouse'][
+        dificuldade if dificuldade in DIFICULDADES else 'medio'] = lista[:20]
+    tmp.write_text(json.dumps(ranking, ensure_ascii=False, indent=2), encoding='utf-8')
     tmp.replace(arquivo)
     return lista[:20]
 
@@ -287,6 +330,7 @@ class Jogo:
         self.prever_camera = not args.sem_preview
         self.ativo = True
         self.tela_estado = 'menu'
+        self.dificuldade = 'medio'
         self.config = carregar_config()
         self.detector_punho = DetectorPunho()
         self.detector_pausa = DetectorGestoMantido(1.2)
@@ -307,7 +351,9 @@ class Jogo:
         self.combo_visual = None
         self.nome = ''
         self.salvo = False
-        self.ranking = ler_ranking()
+        self.rankings = ler_ranking()
+        self.modo_partida = self.rastreador.modo
+        self.ranking = lista_ranking(self.rankings, self.modo_partida, self.dificuldade)
         self.faixa_musica = None
         self.novo_recorde = False
         self.estrelas = [(random.randrange(W), random.randrange(H), random.choice([1, 1, 2]))
@@ -330,7 +376,7 @@ class Jogo:
     def musica_desejada(self):
         if self.tela_estado == 'menu':
             return '01_neon_awakening.mp3'
-        if self.tela_estado == 'calibracao':
+        if self.tela_estado in ('calibracao', 'dificuldade'):
             return '02_system_calibration.mp3'
         if self.tela_estado == 'jogando':
             return ('04_final_countdown.mp3' if self.tempo <= 10
@@ -370,8 +416,18 @@ class Jogo:
         self.acertos_teste = set()
         self.reset_detectores()
 
+    def abrir_dificuldade(self):
+        self.tela_estado = 'dificuldade'
+        self.reset_detectores()
+
+    @property
+    def fator_dificuldade(self):
+        return FATORES_DIFICULDADE.get(self.dificuldade, FATORES_DIFICULDADE['medio'])
+
     def nova_partida(self):
         self.tela_estado = 'jogando'
+        self.modo_partida = self.rastreador.modo
+        self.ranking = lista_ranking(self.rankings, self.modo_partida, self.dificuldade)
         self.novo_recorde = False
         self.pontos = self.combo = self.max_combo = self.acertos = self.erros = 0
         self.tempo = PARTIDA_SEGUNDOS
@@ -395,7 +451,8 @@ class Jogo:
     def reabastecer(self):
         quantidade = min(5, 2 + self.nivel)
         while len(self.alvos) < quantidade:
-            alvo = criar_alvo(self.largura, self.altura, self.alvos, self.nivel)
+            alvo = criar_alvo(self.largura, self.altura, self.alvos, self.nivel,
+                              fator_ritmo=self.fator_dificuldade)
             if alvo is None:
                 break
             self.alvos.append(alvo)
@@ -460,6 +517,24 @@ class Jogo:
             'iniciar': pygame.Rect(self.largura // 2 - 180, self.altura - 198, 360, 120),
             'targets_center': (direita_x, int(self.altura * 0.54)),
         }
+
+    def difficulty_card_rects(self):
+        img = self.assets.load('definitivos/dificuldade/paineis_dificuldade.png')
+        if img:
+            ow, oh = img.get_size()
+        else:
+            ow, oh = 1774, 887
+        escala = min((self.largura - 90) / ow, (self.altura - 130) / oh)
+        largura, altura = int(ow * escala), int(oh * escala)
+        esquerda = (self.largura - largura) // 2
+        topo = self.altura // 2 - 10 - altura // 2
+        return [
+            pygame.Rect(esquerda + int(largura * 40 / ow),
+                        topo + int(altura * y1 / oh),
+                        int(largura * (1733 - 40) / ow),
+                        int(altura * (y2 - y1) / oh))
+            for y1, y2 in ((41, 269), (336, 564), (631, 858))
+        ]
 
     def calibration_targets(self):
         base_x = int(self.largura * 0.69)
@@ -567,7 +642,7 @@ class Jogo:
         if self.tela_estado == 'calibracao':
             controles = self.calibration_controls()
             if controles['iniciar'].collidepoint(pos):
-                self.nova_partida()
+                self.abrir_dificuldade()
                 return
             for chave, ajuste, campo in (
                 ('sens_menos', -0.1, 'sensibilidade'),
@@ -582,6 +657,13 @@ class Jogo:
                 if math.hypot(pos[0] - x, pos[1] - y) <= self.hit_radius_calibration():
                     self.acertos_teste.add(i)
                     self.criar_particulas(x, y, VERDE, 'OK')
+                    return
+            return
+        if self.tela_estado == 'dificuldade':
+            for chave, rect in zip(('facil', 'medio', 'dificil'), self.difficulty_card_rects()):
+                if rect.collidepoint(pos):
+                    self.dificuldade = chave
+                    self.nova_partida()
                     return
             return
         if self.tela_estado == 'pausado':
@@ -629,7 +711,9 @@ class Jogo:
         if self.salvo:
             return
         try:
-            self.ranking = salvar_ranking(self.nome or 'VISITANTE', self.pontos)
+            self.ranking = salvar_ranking(self.nome or 'VISITANTE', self.pontos,
+                                          self.modo_partida, self.dificuldade)
+            self.rankings = ler_ranking()
             self.salvo = True
         except OSError as e:
             self.rastreador.mensagem = f'Não foi possível salvar ranking: {str(e)[:70]}'
@@ -668,6 +752,8 @@ class Jogo:
             if self.tela_estado == 'menu':
                 self.abrir_calibracao()
             elif self.tela_estado == 'calibracao':
+                self.abrir_dificuldade()
+            elif self.tela_estado == 'dificuldade':
                 self.nova_partida()
             elif self.tela_estado == 'resultado':
                 if not self.salvo:
@@ -711,7 +797,8 @@ class Jogo:
         for alvo in self.alvos[:]:
             alvo.vida -= dt
             if self.nivel >= 3:
-                alvo.x += math.sin(pygame.time.get_ticks() / 420 + alvo.oscilacao) * dt * 32
+                alvo.x += (math.sin(pygame.time.get_ticks() / 420 + alvo.oscilacao)
+                           * dt * 32 * self.fator_dificuldade)
                 alvo.x = limitar(alvo.x, alvo.raio + 18, self.largura - alvo.raio - 18)
             if alvo.vida <= 0:
                 self.alvos.remove(alvo)
@@ -751,7 +838,8 @@ class Jogo:
                 self.desenhar_texto('!' if alvo.tipo == 'perigo' else '*', self.fonte_media,
                                     BRANCO, (x, y - 1), True)
             cor = cores[alvo.tipo]
-            proporcao = limitar(alvo.vida / max(1.35, 3.8 - self.nivel * 0.22), 0, 1)
+            vida_maxima = max(1.35, 3.8 - self.nivel * 0.22) / self.fator_dificuldade
+            proporcao = limitar(alvo.vida / vida_maxima, 0, 1)
             largura = int(raio * 2 * proporcao)
             pygame.draw.rect(self.tela, (18, 28, 53), (x - raio, y + raio + 8, raio * 2, 4), border_radius=2)
             pygame.draw.rect(self.tela, cor, (x - raio, y + raio + 8, largura, 4), border_radius=2)
@@ -827,7 +915,7 @@ class Jogo:
     def tela_calibracao(self):
         centro = self.largura // 2
         self.desenhar_texto('AJUSTE A MIRA', self.fonte_grande, BRANCO, (centro, 49), True)
-        self.desenhar_texto('Ajuste, teste e só depois inicie a partida.', self.fonte_texto,
+        self.desenhar_texto('Ajuste e teste a mira antes de escolher a dificuldade.', self.fonte_texto,
                             CINZA, (centro, 96), True)
         ctr = self.calibration_controls()
         caixa = ctr['painel']
@@ -884,7 +972,39 @@ class Jogo:
                             (int(self.largura * 0.73), self.altura - 122), True)
         rect = ctr['iniciar']
         hover = rect.collidepoint(pos)
-        self.draw_sprite_button('iniciar', rect.center, rect.size, hover=hover)
+        self.draw_sprite_button('continuar', rect.center, rect.size, hover=hover)
+
+    def tela_dificuldade(self):
+        centro = self.largura // 2
+        self.desenhar_texto('ESCOLHA A DIFICULDADE', self.fonte_grande, BRANCO,
+                            (centro, 43), True)
+        caminho = 'definitivos/dificuldade/paineis_dificuldade.png'
+        imagem = self.assets.load(caminho)
+        cartoes = self.difficulty_card_rects()
+        if imagem:
+            largura_origem, altura_origem = imagem.get_size()
+            escala = min((self.largura - 90) / largura_origem,
+                         (self.altura - 130) / altura_origem)
+            largura_imagem = int(largura_origem * escala)
+            altura_imagem = int(altura_origem * escala)
+            imagem = pygame.transform.smoothscale(imagem, (largura_imagem, altura_imagem))
+            area = imagem.get_rect(center=(centro, self.altura // 2 - 10))
+            self.tela.blit(imagem, area)
+        self.desenhar_texto('Clique para começar • teclas 1, 2 ou 3 selecionam; Enter confirma.',
+                            self.fonte_pequena, BRANCO, (centro, self.altura - 69), True)
+        opcoes = (
+            ('facil', 'FÁCIL', 'Alvos duram mais e se movem 70% mais devagar que no difícil.', CIANO),
+            ('medio', 'MÉDIO', 'Ritmo 40% abaixo do difícil, para uma partida equilibrada.', OURO),
+            ('dificil', 'DIFÍCIL', 'Ritmo atual acelerado em 10%, para desafiar seus reflexos.', ROXO),
+        )
+        for indice, (chave, titulo, descricao, cor) in enumerate(opcoes):
+            rect = cartoes[indice]
+            y = rect.centery
+            self.desenhar_texto(titulo, self.fonte_media, cor, (centro, y - 16), True)
+            self.desenhar_texto(descricao, self.fonte_pequena, BRANCO, (centro, y + 20), True)
+            if self.dificuldade == chave:
+                self.desenhar_texto('SELECIONADA', self.fonte_pequena, cor,
+                                    (rect.right - 125, y - 16), True)
 
     def tela_pausa(self):
         painel = pygame.Rect(self.largura // 2 - 310, self.altura // 2 - 186, 620, 372)
@@ -913,6 +1033,11 @@ class Jogo:
                             VERDE if self.salvo else CINZA, (caixa.x + 50, 425))
         ranking = pygame.Rect(centro + 70, 290, 360, 216)
         self.painel_asset('painel_ranking', ranking)
+        modo_nome = 'WEBCAM' if self.modo_partida == 'camera' else 'MOUSE'
+        dificuldade_nome = {'facil': 'FÁCIL', 'medio': 'MÉDIO',
+                            'dificil': 'DIFÍCIL'}.get(self.dificuldade, 'MÉDIO')
+        self.desenhar_texto(f'{modo_nome} • {dificuldade_nome}', self.fonte_pequena,
+                            CIANO, (ranking.centerx, ranking.y + 34), True)
         medalhas = ('medalha_1_lugar', 'medalha_2_lugar', 'medalha_3_lugar')
         for i, item in enumerate(self.ranking[:5]):
             yy = ranking.y + 66 + i * 28
@@ -924,6 +1049,9 @@ class Jogo:
                                 BRANCO if i == 0 else CINZA, (ranking.x + 58, yy + 3))
             self.desenhar_texto(str(item['pontos']), self.fonte_pequena, OURO,
                                 (ranking.right - 22, yy + 3), True)
+        if not self.ranking:
+            self.desenhar_texto('Ainda sem pontuações', self.fonte_pequena, CINZA,
+                                (ranking.centerx, ranking.y + 105), True)
         pos = self.cursor if self.rastreador.modo == 'camera' else pygame.mouse.get_pos()
         rect = self.result_button_rect()
         hover = rect.collidepoint(pos)
@@ -961,6 +1089,8 @@ class Jogo:
             self.tela_menu()
         elif self.tela_estado == 'calibracao':
             self.tela_calibracao()
+        elif self.tela_estado == 'dificuldade':
+            self.tela_dificuldade()
         else:
             self.tela_resultado()
         self.rodape()
@@ -975,6 +1105,7 @@ class Jogo:
         pygame.display.flip()
 
     def alternar_mouse(self):
+        modo_anterior = self.rastreador.modo
         if self.rastreador.modo == 'camera':
             self.rastreador.modo = 'mouse'
             self.rastreador.mensagem = 'Modo mouse ativado manualmente.'
@@ -982,6 +1113,13 @@ class Jogo:
             self.rastreador.modo = 'camera'
             self.rastreador.mensagem = 'Modo webcam ativado.'
             self.reset_detectores()
+        if (self.rastreador.modo != modo_anterior
+                and self.tela_estado in ('jogando', 'pausado')):
+            # A rodada pode trocar de controle; classifique pelo modo usado ao
+            # encerrar, igual ao modo exibido no rodapé durante a partida.
+            self.modo_partida = self.rastreador.modo
+            self.ranking = lista_ranking(
+                self.rankings, self.modo_partida, self.dificuldade)
 
     def tratar_evento(self, evento):
         if evento.type == pygame.QUIT:
@@ -1018,7 +1156,7 @@ class Jogo:
                 self.alternar_mouse()
             elif evento.key == pygame.K_v:
                 self.prever_camera = not self.prever_camera
-            elif evento.key == pygame.K_c and self.tela_estado in ('jogando', 'pausado', 'menu', 'resultado'):
+            elif evento.key == pygame.K_c and self.tela_estado in ('jogando', 'pausado', 'menu', 'resultado', 'dificuldade'):
                 self.abrir_calibracao()
             elif evento.key == pygame.K_SPACE and self.tela_estado in ('jogando', 'pausado'):
                 self.tela_estado = 'pausado' if self.tela_estado == 'jogando' else 'jogando'
@@ -1030,10 +1168,15 @@ class Jogo:
                 self.ajustar_config('resposta', -0.05)
             elif self.tela_estado == 'calibracao' and evento.key == pygame.K_RIGHTBRACKET:
                 self.ajustar_config('resposta', 0.05)
+            elif self.tela_estado == 'dificuldade' and evento.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                self.dificuldade = {pygame.K_1: 'facil', pygame.K_2: 'medio',
+                                    pygame.K_3: 'dificil'}[evento.key]
             elif evento.key == pygame.K_RETURN:
                 if self.tela_estado == 'menu':
                     self.abrir_calibracao()
                 elif self.tela_estado == 'calibracao':
+                    self.abrir_dificuldade()
+                elif self.tela_estado == 'dificuldade':
                     self.nova_partida()
 
     def executar(self):
