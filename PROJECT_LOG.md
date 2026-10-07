@@ -68,3 +68,11 @@ Jogo offline para feira de ADS, controlado por gestos da mão com webcam ou por 
 - Ao alternar o controle durante a partida/pausa, modo da pontuação e lista consultada agora acompanham o modo ativo. A tela de resultado, a verificação de Top 5 e o salvamento ficam alinhados.
 - Validação específica passou: compilação Python, alternância webcam→mouse→webcam durante uma rodada simulada, seleção do quadro correspondente a cada modo e persistência no modo ativo ao final. A build PyInstaller atualizada respondeu a `--help` com código 0; ZIP validado com 2.268 arquivos.
 - ZIP atualizado: `D:\Downloads\GestureRush_correcao_modo_ranking_20261007.zip`.
+
+## README detalhado e capturas — 2026-10-07
+
+- README refeito em português para explicar a proposta do jogo, fluxo completo, pontuação, progressão, controles, seis categorias de ranking, sete faixas, instalação/uso e limitações.
+- Adicionadas cinco capturas reais das telas do jogo em execução em modo mouse: menu, calibração, dificuldade, partida e pausa. Não foram inventados nomes, placares ou registros.
+- Caminho das imagens: `docs/screenshots/`.
+- Validação: cinco referências de imagem conferidas no README; todos os PNGs existem com 1280×720, e `git diff --check` passou.
+- Próxima verificação: depois da publicação da alteração, abrir o README no GitHub para conferir a renderização da galeria; na máquina de apresentação, substituir/acrescentar captura da webcam apenas com autorização de quem estiver no enquadramento.
