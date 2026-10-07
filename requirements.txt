@@ -1,0 +1,5 @@
+# Instale enquanto ainda tiver internet; durante a feira nada é baixado.
+mediapipe==0.10.32
+opencv-python>=4.10,<5
+pygame>=2.6,<3
+numpy>=1.26,<3

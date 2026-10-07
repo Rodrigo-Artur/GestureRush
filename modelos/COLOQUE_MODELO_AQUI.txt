@@ -1,0 +1,3 @@
+Coloque nesta pasta o arquivo hand_landmarker.task.
+Com internet durante a preparação, execute: python baixar_modelo.py
+O jogo não acessa a internet durante a execução.

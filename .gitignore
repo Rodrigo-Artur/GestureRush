@@ -1,0 +1,36 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+ENV/
+
+# PyInstaller build output and generated spec
+/build*/
+/dist*/
+/GestureRush.spec
+
+# Local editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files and local logs
+*.tmp
+*.bak
+*.log
+
+# Local score/config data if a developer runs the game from the project root
+/config.json
+/ranking.json
