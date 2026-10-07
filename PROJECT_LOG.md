@@ -27,6 +27,12 @@ Jogo offline para feira de ADS, controlado por gestos da mão com webcam ou por 
 
 `.gitignore` exclui ambientes virtuais, caches, temporários e saídas repetidas do PyInstaller (`build*`, `dist*` e o `.spec` gerado). Os arquivos ignorados permanecem no disco. Assets, músicas, modelo e fontes de teste não são ignorados.
 
+## Repositório remoto
+
+- `origin`: `https://github.com/Rodrigo-Artur/GestureRush.git`.
+- Branch publicada: `chore/initial-project-upload`, rastreando `origin/chore/initial-project-upload`.
+- O repositório remoto estava vazio antes do envio. O primeiro snapshot foi publicado nessa branch; nenhum arquivo foi enviado diretamente para `main`.
+
 ## Validação já realizada
 
 - O carregamento das sete faixas e as mudanças de faixa por estado foram exercitados com o driver de áudio dummy do Pygame.
